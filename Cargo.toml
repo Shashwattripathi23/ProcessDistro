@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "controller",
+    "edge_node", 
+    "common",
+    "wasm_tasks/password_hash",
+    "wasm_tasks/matrix_mul",
+    "wasm_tasks/mandelbrot"
+]
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+clap = { version = "4.0", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+thiserror = "1.0"
+
+socket2 = "0.5"
+local-ip-address = "0.6"
+futures = "0.3"
+mdns-sd = "0.11"
+dns-lookup = "2.0"
+hostname = "0.4"
+
+# Workspace-level profiles to fix warnings
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+debug = true
+opt-level = 0

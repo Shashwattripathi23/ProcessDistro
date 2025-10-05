@@ -1,0 +1,72 @@
+{
+    "protocol_version": "1.0.0",
+    "schema_version": "1.0.0",
+    "description": "ProcessDistro distributed computing protocol",
+    "message_format": {
+        "encoding": "json",
+        "transport": "tcp",
+        "framing": "length_prefixed",
+        "max_message_size": 16777216
+    },
+    "authentication": {
+        "method": "bearer_token",
+        "token_format": "pd_[uuid]",
+        "expiration": "24h",
+        "refresh_supported": false
+    },
+    "supported_operations": [
+        "node_registration",
+        "task_assignment",
+        "result_submission",
+        "work_stealing",
+        "heartbeat",
+        "metrics_reporting"
+    ],
+    "message_types": {
+        "node_registration": {
+            "direction": "edge_to_controller",
+            "payload_schema": "NodeRegistrationPayload",
+            "response_required": true,
+            "timeout": "30s"
+        },
+        "task_assignment": {
+            "direction": "controller_to_edge",
+            "payload_schema": "TaskAssignmentPayload",
+            "response_required": true,
+            "timeout": "10s"
+        },
+        "task_result": {
+            "direction": "edge_to_controller",
+            "payload_schema": "TaskResult",
+            "response_required": false,
+            "timeout": "60s"
+        },
+        "heartbeat": {
+            "direction": "bidirectional",
+            "payload_schema": "HeartbeatPayload",
+            "response_required": false,
+            "timeout": "5s"
+        }
+    },
+    "error_codes": {
+        "1000": "Invalid message format",
+        "1001": "Authentication failed",
+        "1002": "Authorization failed",
+        "1003": "Task not found",
+        "1004": "Node not found",
+        "1005": "Internal server error",
+        "1006": "Resource exhausted",
+        "1007": "Operation timeout",
+        "1008": "Validation failed",
+        "1009": "Unsupported operation"
+    },
+    "version_compatibility": {
+        "backward_compatible": [
+            "0.9.0"
+        ],
+        "forward_compatible": [
+            "1.1.0"
+        ],
+        "breaking_changes": []
+    }
+}
