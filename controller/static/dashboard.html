@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProcessDistro - Distributed Computing Network</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+
+<body>
+    <div class="container">
+        <header class="dashboard-header">
+            <div class="logo-area">
+                <!-- <img src="/static/logo.svg" alt="ProcessDistro Logo" class="logo"
+                    style="height:40px;vertical-align:middle;margin-right:12px;"> -->
+                <span class="brand-title">ProcessDistro</span>
+            </div>
+            <div class="header-details">
+                <h1>Distributed Computing Dashboard</h1>
+                <p class="subtitle">Technical Overview & Node Management</p>
+            </div>
+        </header>
+
+        <div class="status-bar tech-status-bar">
+            <div class="status-item">
+                <span class="status-label">Network Status</span>
+                <span id="network-status" class="status-active">Connected</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Total Nodes</span>
+                <span id="total-nodes">0</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Active Tasks</span>
+                <span id="active-tasks">0</span>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- Device Detection Section -->
+            <section class="device-detection card">
+                <h2><span class="section-icon">●</span> Device Registration</h2>
+                <div class="device-info" id="device-info">
+                    <p>Detecting your device capabilities...</p>
+                </div>
+                <div class="registration-controls">
+                    <button id="register-btn" class="btn btn-primary" disabled>
+                        Register This Device
+                    </button>
+                    <button id="unregister-btn" class="btn btn-danger" disabled style="display: none;">
+                        Unregister Device
+                    </button>
+                    <button id="benchmark-btn" class="btn btn-secondary" disabled>
+                        Run Benchmark
+                    </button>
+                </div>
+                <div class="device-capabilities" id="device-capabilities" style="display: none;">
+                    <h3>Your Device Capabilities</h3>
+                    <div class="capability-grid" id="capability-grid">
+                        <!-- Capabilities will be populated here -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Network Nodes Section -->
+            <section class="network-nodes card">
+                <h2><span class="section-icon">●</span> Network Nodes</h2>
+                <div class="nodes-controls">
+                    <button id="refresh-nodes" class="btn btn-secondary">Refresh Nodes</button>
+                    <select id="filter-nodes">
+                        <option value="all">All Nodes</option>
+                        <option value="controller">Controllers</option>
+                        <option value="edge_node">Edge Nodes</option>
+                        <option value="web_client">Web Clients</option>
+                    </select>
+                </div>
+                <div class="nodes-grid" id="nodes-grid">
+                    <!-- Nodes will be populated here -->
+                </div>
+            </section>
+
+            <!-- Task Queue Section -->
+            <section class="task-queue card">
+                <h2><span class="section-icon">●</span> Task Queue</h2>
+                <div class="task-stats">
+                    <div class="stat-card">
+                        <h3>Pending</h3>
+                        <span class="stat-number" id="pending-tasks">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Running</h3>
+                        <span class="stat-number" id="running-tasks">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Completed</h3>
+                        <span class="stat-number" id="completed-tasks">0</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Performance Metrics Section -->
+            <section class="performance-metrics card">
+                <h2><span class="section-icon">●</span> Performance Metrics</h2>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <h3>Total Computing Power</h3>
+                        <div class="metric-value">
+                            <span id="total-cores">0</span> cores
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <h3>Total Memory</h3>
+                        <div class="metric-value">
+                            <span id="total-memory">0</span> GB
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <h3>Average Benchmark</h3>
+                        <div class="metric-value">
+                            <span id="avg-benchmark">0</span> ops/sec
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Network Connection Guide -->
+            <section class="connection-guide card">
+                <h2><span class="section-icon">●</span> Connect Other Devices</h2>
+                <div class="connection-info">
+                    <div class="qr-section">
+                        <h3>Quick Access</h3>
+                        <div id="qr-code-container">
+                            <canvas id="qr-code" width="200" height="200"></canvas>
+                        </div>
+                        <p class="qr-text">Scan with mobile device</p>
+                    </div>
+                    <div class="url-section">
+                        <h3>Connection URLs</h3>
+                        <div id="connection-urls">
+                            <div class="url-item">
+                                <span class="url-label">Local:</span>
+                                <code id="local-url">http://localhost:30100</code>
+                                <button class="copy-btn" data-url="local-url">Copy</button>
+                            </div>
+                            <div class="url-item">
+                                <span class="url-label">Network:</span>
+                                <code id="network-url">Detecting...</code>
+                                <button class="copy-btn" data-url="network-url">Copy</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="instructions">
+                    <h3>Instructions for Other Devices</h3>
+                    <ol>
+                        <li>Make sure the device is on the same WiFi network</li>
+                        <li>Open a web browser on the device</li>
+                        <li>Enter one of the URLs above or scan the QR code</li>
+                        <li>The device will automatically detect its capabilities</li>
+                        <li>Click "Register This Device" to join the network</li>
+                        <li>Optionally run the benchmark to measure performance</li>
+                    </ol>
+                </div>
+            </section>
+        </div>
+
+        <footer class="dashboard-footer">
+            <div class="footer-content">
+                <span class="footer-title">ProcessDistro v0.1.0</span>
+                <span class="footer-desc">Rust + WebAssembly Distributed Computing</span>
+                <span class="footer-id">Device ID: <span id="device-id">Generating...</span></span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Benchmark Worker (WASM simulation) -->
+    <div id="benchmark-progress" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Running Benchmark</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <p id="benchmark-status">Initializing...</p>
+        </div>
+    </div>
+
+    <script src="/static/dashboard.js?v=4"></script>
+</body>
+
+</html>

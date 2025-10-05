@@ -1,0 +1,53 @@
+[package]
+name = "controller"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "controller"
+path = "src/main.rs"
+
+[[bin]]
+name = "web-server"
+path = "src/web_main.rs"
+
+[[bin]]
+name = "test_network_discovery"
+path = "src/test_network_discovery.rs"
+
+[dependencies]
+common = { path = "../common" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Additional controller-specific dependencies
+hyper = "1.0"
+tower = "0.4"
+dashmap = "5.0"
+
+# Web server dependencies
+axum = { version = "0.7", features = ["ws"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+mime_guess = "2.0"
+chrono = { version = "0.4", features = ["serde"] }
+num_cpus = "1.0"
+local-ip-address = "0.6"
+
+# WebSocket dependencies
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+
+# Network discovery dependencies
+socket2 = "0.5"
+dns-lookup = "2.0"
+mdns-sd = "0.11"
+futures = "0.3"
+gethostname = "0.4"
