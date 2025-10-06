@@ -14,7 +14,7 @@ pub struct AuthToken {
     pub permissions: Vec<Permission>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Permission {
     ExecuteTasks,
     SubmitResults,
@@ -31,7 +31,7 @@ impl SecurityManager {
     pub fn new() -> Self {
         Self {
             active_tokens: HashMap::new(),
-            token_duration: Duration::from_hours(24),
+            token_duration: Duration::from_secs(24 * 60 * 60), // 24 hours
         }
     }
     

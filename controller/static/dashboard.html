@@ -68,6 +68,7 @@
                 <h2><span class="section-icon">●</span> Network Nodes</h2>
                 <div class="nodes-controls">
                     <button id="refresh-nodes" class="btn btn-secondary">Refresh Nodes</button>
+                    <button id="viewMetricsBtn" class="btn btn-info">View Metrics</button>
                     <select id="filter-nodes">
                         <option value="all">All Nodes</option>
                         <option value="controller">Controllers</option>
@@ -82,7 +83,7 @@
 
             <!-- Task Queue Section -->
             <section class="task-queue card">
-                <h2><span class="section-icon">●</span> Task Queue</h2>
+                <h2><span class="section-icon">●</span> Task Status & Queue</h2>
                 <div class="task-stats">
                     <div class="stat-card">
                         <h3>Pending</h3>
@@ -97,9 +98,25 @@
                         <span class="stat-number" id="completed-tasks">0</span>
                     </div>
                 </div>
-            </section>
 
-            <!-- Performance Metrics Section -->
+                <!-- Task History -->
+                <div class="task-history">
+                    <h3>Recent Tasks</h3>
+                    <div id="task-history-list" class="task-list">
+                        <p class="no-tasks">No tasks executed yet. Use the controller terminal to run
+                            'run-mandelbrot-test'.</p>
+                    </div>
+                </div>
+
+                <!-- Canvas Gallery Section -->
+                <div class="canvas-gallery">
+                    <h3>🎨 Fractal Gallery</h3>
+                    <div id="canvas-gallery-grid" class="canvas-grid">
+                        <p class="no-canvas">No fractals rendered yet. Start a Mandelbrot test to see beautiful
+                            visualizations!</p>
+                    </div>
+                </div>
+            </section> <!-- Performance Metrics Section -->
             <section class="performance-metrics card">
                 <h2><span class="section-icon">●</span> Performance Metrics</h2>
                 <div class="metrics-grid">
@@ -129,11 +146,11 @@
                 <h2><span class="section-icon">●</span> Connect Other Devices</h2>
                 <div class="connection-info">
                     <div class="qr-section">
-                        <h3>Quick Access</h3>
+                        <!-- <h3>Quick Access</h3>
                         <div id="qr-code-container">
                             <canvas id="qr-code" width="200" height="200"></canvas>
                         </div>
-                        <p class="qr-text">Scan with mobile device</p>
+                        <p class="qr-text">Scan with mobile device</p> -->
                     </div>
                     <div class="url-section">
                         <h3>Connection URLs</h3>
@@ -172,6 +189,73 @@
                 <span class="footer-id">Device ID: <span id="device-id">Generating...</span></span>
             </div>
         </footer>
+    </div>
+
+    <!-- Metrics Modal -->
+    <div id="metricsModal" class="modal" style="display: none;">
+        <div class="modal-content metrics-modal-content">
+            <div class="modal-header">
+                <h3>📊 Task Execution Metrics</h3>
+                <button class="modal-close" id="close-metrics">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="metrics-summary">
+                    <div class="metric-card">
+                        <h4>Total Tasks</h4>
+                        <span class="metric-value" id="total-tasks-metric">0</span>
+                    </div>
+                    <div class="metric-card">
+                        <h4>Completed Tasks</h4>
+                        <span class="metric-value" id="completed-tasks-metric">0</span>
+                    </div>
+                    <div class="metric-card">
+                        <h4>Average Duration</h4>
+                        <span class="metric-value" id="avg-duration-metric">0s</span>
+                    </div>
+                    <div class="metric-card">
+                        <h4>Success Rate</h4>
+                        <span class="metric-value" id="success-rate-metric">0%</span>
+                    </div>
+                </div>
+
+                <div class="metrics-charts">
+                    <div class="chart-section">
+                        <h4>Task Types Distribution</h4>
+                        <div id="task-types-chart" class="chart-placeholder">
+                            <!-- Chart will be populated here -->
+                        </div>
+                    </div>
+
+                    <div class="chart-section">
+                        <h4>Node Performance</h4>
+                        <div id="node-performance-chart" class="chart-placeholder">
+                            <!-- Chart will be populated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detailed-logs">
+                    <h4>Recent Task Logs</h4>
+                    <div class="logs-table-container">
+                        <table class="logs-table">
+                            <thead>
+                                <tr>
+                                    <th>Task ID</th>
+                                    <th>Type</th>
+                                    <th>Node</th>
+                                    <th>Status</th>
+                                    <th>Duration</th>
+                                    <th>Completed At</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-table-body">
+                                <!-- Logs will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Benchmark Worker (WASM simulation) -->

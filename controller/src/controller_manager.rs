@@ -586,4 +586,126 @@ impl ControllerManager {
         
         *self.cleanup_handle.lock().await = Some(handle);
     }
+
+    /// Update node status 
+    pub async fn update_node_status(&self, node_id: &str, status: &str) {
+        let mut nodes = self.nodes.write().await;
+        if let Some(node) = nodes.get_mut(node_id) {
+            node.status = status.to_string();
+            
+            // Broadcast node update
+            let _ = self.broadcast_tx.send(WsMessage::NodeUpdate { 
+                nodes: nodes.values().cloned().collect() 
+            });
+        }
+    }
+
+    /// Run a Mandelbrot fractal rendering test on all nodes with canvas display
+    pub async fn run_mandelbrot_test(&self, width: u32, height: u32, max_iterations: u32) -> Vec<String> {
+        let nodes = self.get_active_nodes().await;
+        let mut task_ids = Vec::new();
+
+        println!("🎨 Debug: Starting Mandelbrot test with {} active nodes", nodes.len());
+        println!("📐 Canvas dimensions: {}x{}, Max iterations: {}", width, height, max_iterations);
+
+        for node in nodes.iter() {
+            println!("🖼️ Creating Mandelbrot task for node: {} ({})", node.capabilities.device_name, node.node_id);
+            
+            let payload = serde_json::json!({
+                "test": "mandelbrot",
+                "width": width,
+                "height": height,
+                "tile_x": 0,
+                "tile_y": 0,
+                "tile_width": width,
+                "tile_height": height,
+                "min_real": -2.5,
+                "max_real": 1.0,
+                "min_imag": -1.25,
+                "max_imag": 1.25,
+                "max_iterations": max_iterations,
+                "enable_progress": true,
+                "estimated_duration": 10, // 10 seconds estimate
+                "canvas_rendering": true
+            });
+
+            let task_id = self.add_task("mandelbrot".to_string(), payload.clone(), 5).await;
+            task_ids.push(task_id.clone());
+
+            println!("🎯 Task created: {} for node: {}", task_id, node.node_id);
+
+            // Broadcast execute_task to nodes (they will filter by assigned node)
+            let broadcast_result = self.broadcast_tx.send(WsMessage::ExecuteTask {
+                task_id: task_id.clone(),
+                task_type: "mandelbrot".to_string(),
+                payload: payload.clone(),
+                assigned_node: node.node_id.clone(),
+            });
+
+            match broadcast_result {
+                Ok(_) => {
+                    println!("✅ WebSocket message sent successfully for task: {}", task_id);
+                }
+                Err(e) => {
+                    println!("❌ Failed to send WebSocket message for task {}: {:?}", task_id, e);
+                }
+            }
+        }
+
+        println!("📊 Total Mandelbrot tasks dispatched: {}", task_ids.len());
+        println!("🎨 Broadcasting network update...");
+        self.broadcast_network_update().await;
+        
+        task_ids
+    }
+
+    /// Run a password hashing test on all nodes with enhanced monitoring
+    pub async fn run_password_hash_test(&self) -> Vec<String> {
+        let nodes = self.get_active_nodes().await;
+        let mut task_ids = Vec::new();
+
+        println!("🔍 Debug: Starting password hash test with {} active nodes", nodes.len());
+
+        for node in nodes.iter() {
+            println!("🎯 Creating task for node: {} ({})", node.capabilities.device_name, node.node_id);
+            
+            let payload = serde_json::json!({
+                "test": "password_hash",
+                "workload": 50000, // Increased workload for better monitoring
+                "algorithm": "bcrypt",
+                "cost": 10, // Moderate cost for visible duration
+                "batch_size": 1000, // Process in batches for progress updates
+                "estimated_duration": 60, // Estimate 60 seconds
+                "enable_progress": true
+            });
+
+            let task_id = self.add_task("password_hash".to_string(), payload.clone(), 5).await;
+            task_ids.push(task_id.clone());
+
+            println!("📋 Task created: {} for node: {}", task_id, node.node_id);
+
+            // Broadcast execute_task to nodes (they will filter by assigned node)
+            let broadcast_result = self.broadcast_tx.send(WsMessage::ExecuteTask {
+                task_id: task_id.clone(),
+                task_type: "password_hash".to_string(),
+                payload: payload.clone(),
+                assigned_node: node.node_id.clone(),
+            });
+
+            match broadcast_result {
+                Ok(_) => {
+                    println!("✅ WebSocket message sent successfully for task: {}", task_id);
+                }
+                Err(e) => {
+                    println!("❌ Failed to send WebSocket message for task {}: {:?}", task_id, e);
+                }
+            }
+        }
+
+        println!("📊 Total tasks dispatched: {}", task_ids.len());
+        println!("🔔 Broadcasting network update...");
+        self.broadcast_network_update().await;
+        
+        task_ids
+    }
 }

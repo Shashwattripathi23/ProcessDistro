@@ -141,12 +141,68 @@ async fn start_controller(port: u16, _config: Option<String>, debug: bool) -> Re
             info!("Controller started successfully. Press Ctrl+C to stop.");
             
             // Wait for shutdown signal
+            // Additionally listen for a simple terminal command to run password-hash test
+            let controller_clone = web_state.clone();
+            tokio::spawn(async move {
+                use std::io::{self, Write};
+                loop {
+                    print!("\n🔧 ProcessDistro Controller Commands:\n");
+                    print!("  'run-mandelbrot-test' - Execute Mandelbrot fractal rendering on all nodes\n");
+                    print!("  'exit' - Quit controller\n");
+                    print!("📝 Enter command: ");
+                    io::stdout().flush().ok();
+                    
+                    let mut input = String::new();
+                    if let Ok(_) = io::stdin().read_line(&mut input) {
+                        let cmd = input.trim();
+                        if cmd.eq_ignore_ascii_case("run-mandelbrot-test") {
+                            // Get active nodes count for confirmation
+                            let active_nodes = controller_clone.controller.get_active_nodes().await;
+                            
+                            if active_nodes.is_empty() {
+                                println!("❌ No active nodes found! Please ensure nodes are connected before running tests.");
+                                continue;
+                            }
+                            
+                            println!("\n🎨 Mandelbrot Fractal Rendering Test Configuration:");
+                            println!("  • Canvas: 800x600 pixels per node");
+                            println!("  • Algorithm: Mandelbrot set with smooth coloring");
+                            println!("  • Max iterations: 100");
+                            println!("  • Target nodes: {} active node(s)", active_nodes.len());
+                            println!("  • Estimated duration: 5-15 seconds per node");
+                            
+                            print!("\n✨ Ready to render beautiful fractals? (y/N): ");
+                            io::stdout().flush().ok();
+                            
+                            let mut confirmation = String::new();
+                            if let Ok(_) = io::stdin().read_line(&mut confirmation) {
+                                let confirm = confirmation.trim();
+                                if confirm.eq_ignore_ascii_case("y") || confirm.eq_ignore_ascii_case("yes") {
+                                    println!("\n🚀 Starting Mandelbrot rendering on all {} nodes...", active_nodes.len());
+                                    let task_ids = controller_clone.controller.run_mandelbrot_test(800, 600, 100).await;
+                                    println!("✅ Successfully dispatched {} tasks", task_ids.len());
+                                    println!("🎯 Task IDs: {:?}", task_ids);
+                                    println!("🎨 Watch live canvas rendering on dashboard: http://localhost:30100");
+                                } else {
+                                    println!("❌ Test cancelled.");
+                                }
+                            }
+                        } else if cmd.eq_ignore_ascii_case("exit") {
+                            println!("🛑 Exit command received, shutting down controller...");
+                            std::process::exit(0);
+                        } else if !cmd.is_empty() {
+                            println!("❓ Unknown command: '{}'. Try 'run-mandelbrot-test' or 'exit'.", cmd);
+                        }
+                    }
+                }
+            });
+
             tokio::signal::ctrl_c().await?;
             info!("Shutdown signal received, stopping controller...");
         }
         Err(e) => {
             error!("Failed to initialize node manager: {}", e);
-            return Err(e.into());
+            return Err(anyhow::anyhow!("Node manager initialization failed: {}", e));
         }
     }
     

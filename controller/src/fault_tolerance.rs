@@ -53,10 +53,11 @@ impl FaultToleranceManager {
     /// Handle a task failure
     pub fn handle_task_failure(&mut self, task: Task, node_id: NodeId, error: String) {
         let task_id = task.id;
+        let task_clone = task.clone();
         
         // Update task failure info
         let failed_task = self.failed_tasks.entry(task_id).or_insert(FailedTask {
-            task: task.clone(),
+            task: task_clone.clone(),
             failure_count: 0,
             last_failure: Instant::now(),
             assigned_node: node_id,
@@ -67,15 +68,18 @@ impl FaultToleranceManager {
         failed_task.last_failure = Instant::now();
         failed_task.error_message = error;
         
+        let max_retries = self.max_retries;
+        let failure_count = failed_task.failure_count;
+        
         // Update node failure info
         self.update_node_failure(node_id);
         
         // Schedule retry if under limit
-        if failed_task.failure_count <= self.max_retries {
+        if failure_count <= max_retries {
             let retry_task = RetryTask {
                 task,
-                retry_count: failed_task.failure_count,
-                retry_after: Instant::now() + Duration::from_secs(30 * failed_task.failure_count as u64),
+                retry_count: failure_count,
+                retry_after: Instant::now() + Duration::from_secs(30 * failure_count as u64),
             };
             self.retry_queue.push_back(retry_task);
         } else {

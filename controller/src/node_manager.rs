@@ -162,6 +162,14 @@ impl DiscoveryService {
 
     /// Initialize mDNS service for service discovery
     async fn initialize_mdns(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Get local IP address
+        let local_ip = if let Ok(ip) = local_ip_address::local_ip() {
+            ip
+        } else {
+            // Fallback to localhost if can't determine local IP
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))
+        };
+        
         // Initialize mDNS service daemon
         let mdns = mdns_sd::ServiceDaemon::new()?;
         
@@ -176,7 +184,7 @@ impl DiscoveryService {
             service_type,
             instance_name,
             &host_name,
-            "0.0.0.0".parse()?,
+            local_ip,
             port,
             &properties[..],
         )?;
@@ -393,7 +401,7 @@ impl DiscoveryService {
             let start_time = Instant::now();
             
             while start_time.elapsed() < browse_timeout {
-                if let Ok(event) = timeout(Duration::from_millis(100), receiver.recv()).await {
+                if let Ok(event) = timeout(Duration::from_millis(100), async { receiver.recv() }).await {
                     match event {
                         Ok(mdns_sd::ServiceEvent::ServiceResolved(info)) => {
                             let device = DiscoveredDevice {
@@ -458,10 +466,13 @@ impl NodeManager {
     
     /// Initialize the node manager and discovery service
     pub async fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.discovery_service.initialize().await?;
+        tracing::info!("Initializing NodeManager...");
         
-        // Start continuous discovery
-        self.start_discovery().await?;
+        // For now, skip mDNS discovery to avoid network compatibility issues
+        // self.discovery_service.initialize().await?;
+        
+        // Just set up basic state
+        tracing::info!("NodeManager initialized successfully (discovery simplified)");
         
         Ok(())
     }
@@ -491,19 +502,21 @@ impl NodeManager {
         tracing::debug!("Processing discovered device: {} (ProcessDistro: {})", 
                        device.ip_address, device.is_processdistro_node);
         
+        let device_ip = device.ip_address.clone();
+        
         if device.is_processdistro_node {
             // This is potentially a ProcessDistro edge node
-            tracing::info!("Found potential ProcessDistro node at {}", device.ip_address);
+            tracing::info!("Found potential ProcessDistro node at {}", device_ip);
             
             // Try to establish communication
             if let Err(e) = self.attempt_node_connection(device).await {
                 tracing::warn!("Failed to connect to potential node at {}: {}", 
-                              device.ip_address, e);
+                              device_ip, e);
             }
         } else if !device.open_ports.is_empty() {
             // Log other interesting devices for potential manual addition
             tracing::debug!("Active device found: {} (ports: {:?})", 
-                           device.ip_address, device.open_ports);
+                           device_ip, device.open_ports);
         }
     }
     
@@ -697,28 +710,4 @@ pub struct NetworkStats {
     pub total_active_tasks: u32,
     pub total_cpu_cores: u32,
     pub network_interfaces: usize,
-}
-
-impl NodeManager {
-    /// Check for offline nodes
-    pub fn check_node_health(&mut self) {
-        let timeout = Duration::from_secs(30);
-        let now = Instant::now();
-        
-        for (node_id, node) in &mut self.nodes {
-            if now.duration_since(node.last_heartbeat) > timeout {
-                node.status = NodeStatus::Offline;
-                // TODO: Reassign tasks from offline nodes
-            }
-        }
-    }
-    
-    /// Get available nodes for task assignment
-    pub fn get_available_nodes(&self) -> Vec<NodeId> {
-        self.nodes
-            .iter()
-            .filter(|(_, node)| matches!(node.status, NodeStatus::Online))
-            .map(|(id, _)| *id)
-            .collect()
-    }
 }

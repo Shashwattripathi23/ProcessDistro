@@ -66,16 +66,16 @@ impl MetricsCollector {
         };
         
         Metrics {
-            nodes_online: self.gauges.get("nodes_online").unwrap_or(&0.0) as u32,
-            tasks_queued: self.gauges.get("tasks_queued").unwrap_or(&0.0) as u32,
-            tasks_running: self.gauges.get("tasks_running").unwrap_or(&0.0) as u32,
-            tasks_completed: self.counters.get("tasks_completed").unwrap_or(&0),
-            tasks_failed: self.counters.get("tasks_failed").unwrap_or(&0),
+            nodes_online: *self.gauges.get("nodes_online").unwrap_or(&0.0) as u32,
+            tasks_queued: *self.gauges.get("tasks_queued").unwrap_or(&0.0) as u32,
+            tasks_running: *self.gauges.get("tasks_running").unwrap_or(&0.0) as u32,
+            tasks_completed: *self.counters.get("tasks_completed").unwrap_or(&0),
+            tasks_failed: *self.counters.get("tasks_failed").unwrap_or(&0),
             avg_task_latency: avg_latency,
-            bytes_transferred: self.counters.get("bytes_transferred").unwrap_or(&0),
+            bytes_transferred: *self.counters.get("bytes_transferred").unwrap_or(&0),
             uptime: Instant::now().duration_since(self.start_time),
-            cpu_utilization: self.gauges.get("cpu_utilization").unwrap_or(&0.0) as f32,
-            memory_usage: self.gauges.get("memory_usage").unwrap_or(&0.0) as u64,
+            cpu_utilization: *self.gauges.get("cpu_utilization").unwrap_or(&0.0) as f32,
+            memory_usage: *self.gauges.get("memory_usage").unwrap_or(&0.0) as u64,
         }
     }
     

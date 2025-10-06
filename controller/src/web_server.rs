@@ -65,8 +65,48 @@ pub enum WsMessage {
         total_memory: u64,
         avg_benchmark: f64,
     },
+    #[serde(rename = "execute_task")]
+    ExecuteTask {
+        task_id: String,
+        task_type: String,
+        payload: serde_json::Value,
+        assigned_node: String,
+    },
+    #[serde(rename = "canvas_completed")]
+    CanvasCompleted {
+        node_id: String,
+        completed_at: String,
+        status: String,
+    },
+    #[serde(rename = "canvas_progress")]
+    CanvasProgress {
+        node_id: String,
+        progress: u32,
+        timestamp: String,
+    },
     #[serde(rename = "heartbeat")]
     Heartbeat,
+}
+
+/// Task completion log entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskLog {
+    pub task_id: String,
+    pub task_type: String,
+    pub node_id: String,
+    pub device_name: String,
+    pub device_type: String,
+    pub platform: String,
+    pub cpu_cores: u32,
+    pub memory_mb: u64,
+    pub benchmark_score: Option<u32>,
+    pub status: String,
+    pub start_time: String,
+    pub end_time: String,
+    pub duration_ms: u64,
+    pub duration_seconds: u64,
+    pub timestamp: String,
+    pub success: bool,
 }
 
 /// Web server state
@@ -161,11 +201,15 @@ async fn handle_websocket(socket: WebSocket, state: WebServerState) {
         let mut current_node_id: Option<String> = None;
         
         while let Some(Ok(Message::Text(text))) = receiver.next().await {
+            println!("📨 Received WebSocket message from {}: {}", current_node_id.as_deref().unwrap_or("unknown"), text);
+            
             // Handle incoming WebSocket messages
             if let Ok(message) = serde_json::from_str::<serde_json::Value>(&text) {
                 if let Some(msg_type) = message.get("type").and_then(|v| v.as_str()) {
+                    println!("🔍 Processing message type: {}", msg_type);
                     match msg_type {
                         "register" => {
+                            println!("🆕 Processing registration message");
                             if let Ok(capabilities) = serde_json::from_value::<DeviceCapabilities>(message.clone()) {
                                 let node_info = NodeInfo {
                                     node_id: capabilities.device_id.clone(),
@@ -178,19 +222,93 @@ async fn handle_websocket(socket: WebSocket, state: WebServerState) {
                                 };
                                 
                                 current_node_id = Some(node_info.node_id.clone());
+                                println!("✅ Registering node: {}", node_info.node_id);
                                 let _ = controller_clone.register_node(node_info, Some(websocket_id_clone.clone())).await;
                             }
                         }
                         "heartbeat" => {
                             if let Some(node_id) = &current_node_id {
+                                println!("💓 Heartbeat from node: {}", node_id);
                                 controller_clone.update_heartbeat(node_id).await;
                             }
                         }
+                        "canvas_completed" => {
+                            println!("🎨 Processing canvas completion message");
+                            if let Some(node_id) = message.get("node_id").and_then(|v| v.as_str()) {
+                                let completed_at = message.get("completed_at").and_then(|v| v.as_str()).unwrap_or("");
+                                let status = message.get("status").and_then(|v| v.as_str()).unwrap_or("completed");
+                                
+                                println!("✅ Canvas completed by node: {}", node_id);
+                                
+                                // Broadcast to all connected dashboards
+                                let broadcast_msg = WsMessage::CanvasCompleted {
+                                    node_id: node_id.to_string(),
+                                    completed_at: completed_at.to_string(),
+                                    status: status.to_string(),
+                                };
+                                
+                                match controller_clone.get_broadcast_sender().send(broadcast_msg) {
+                                    Ok(_) => println!("📡 Canvas completion broadcasted to all dashboards"),
+                                    Err(e) => println!("❌ Failed to broadcast canvas completion: {:?}", e),
+                                }
+                            } else {
+                                println!("⚠️ Canvas completion message missing node_id");
+                            }
+                        }
+                        "canvas_progress" => {
+                            if let Some(node_id) = message.get("node_id").and_then(|v| v.as_str()) {
+                                let progress = message.get("progress").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                let timestamp = message.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+                                
+                                // Only log significant progress milestones to reduce spam
+                                if progress % 10 == 0 || progress >= 95 {
+                                    println!("📊 Canvas progress from node {}: {}%", node_id, progress);
+                                }
+                                
+                                // Broadcast to all connected dashboards
+                                let broadcast_msg = WsMessage::CanvasProgress {
+                                    node_id: node_id.to_string(),
+                                    progress,
+                                    timestamp: timestamp.to_string(),
+                                };
+                                
+                                match controller_clone.get_broadcast_sender().send(broadcast_msg) {
+                                    Ok(_) => {
+                                        // Only log broadcast success for completion or every 25%
+                                        if progress >= 100 || progress % 25 == 0 {
+                                            println!("📡 Canvas progress broadcasted to all dashboards");
+                                        }
+                                    },
+                                    Err(e) => println!("❌ Failed to broadcast canvas progress: {:?}", e),
+                                }
+                            } else {
+                                println!("⚠️ Canvas progress message missing node_id");
+                            }
+                        }
+                        "task_complete" => {
+                            println!("🏁 Processing task completion message");
+                            // Expect fields: task_id, node_id, result, duration_ms
+                            if let Some(task_id) = message.get("task_id").and_then(|v| v.as_str()) {
+                                println!("✅ Task completed: {} by node: {:?}", task_id, current_node_id);
+                                let _ = controller_clone.complete_task(task_id, message.get("result").cloned()).await;
+                                
+                                // Update node status to idle
+                                if let Some(node_id) = &current_node_id {
+                                    controller_clone.update_node_status(node_id, "idle").await;
+                                }
+                            } else {
+                                println!("⚠️ Task completion message missing task_id");
+                            }
+                        }
                         _ => {
-                            println!("Unknown WebSocket message type: {}", msg_type);
+                            println!("❓ Unknown WebSocket message type: {}", msg_type);
                         }
                     }
+                } else {
+                    println!("⚠️ WebSocket message missing 'type' field: {}", text);
                 }
+            } else {
+                println!("⚠️ Failed to parse WebSocket message as JSON: {}", text);
             }
         }
         
@@ -222,6 +340,9 @@ pub async fn start_web_server(port: u16, state: WebServerState) -> Result<(), Bo
         .route("/api/unregister", post(unregister_device))
         .route("/api/heartbeat", post(heartbeat))
         .route("/api/benchmark", post(submit_benchmark))
+        .route("/api/submit_result", post(submit_task_result))
+        .route("/api/log_task", post(log_task_completion))
+        .route("/api/task_logs", get(get_task_logs))
         .route("/static/*file", get(serve_static))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -251,23 +372,42 @@ async fn serve_static(uri: axum::extract::Path<String>) -> impl IntoResponse {
     match path {
         "dashboard.js" => {
             let content = include_str!("../static/dashboard.js");
-            Response::builder()
-                .header(header::CONTENT_TYPE, "application/javascript")
-                .body(content.to_string())
-                .unwrap()
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/javascript")],
+                content.as_bytes().to_vec(),
+            )
         }
         "dashboard.css" => {
             let content = include_str!("../static/dashboard.css");
-            Response::builder()
-                .header(header::CONTENT_TYPE, "text/css")
-                .body(content.to_string())
-                .unwrap()
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/css")],
+                content.as_bytes().to_vec(),
+            )
+        }
+        "mandelbrot.wasm" => {
+            let wasm_bytes = include_bytes!("../static/mandelbrot.wasm");
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/wasm")],
+                wasm_bytes.to_vec(),
+            )
+        }
+        "password_hash.wasm" => {
+            let wasm_bytes = include_bytes!("../static/password_hash.wasm");
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/wasm")],
+                wasm_bytes.to_vec(),
+            )
         }
         _ => {
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body("File not found".to_string())
-                .unwrap()
+            (
+                StatusCode::NOT_FOUND,
+                [(header::CONTENT_TYPE, "text/plain")],
+                b"File not found".to_vec(),
+            )
         }
     }
 }
@@ -373,6 +513,156 @@ async fn unregister_device(
             "status": "error",
             "message": "Missing node_id"
         }))
+    }
+}
+
+/// Submit task result
+async fn submit_task_result(
+    State(state): State<WebServerState>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    if let Some(task_id) = payload.get("task_id").and_then(|v| v.as_str()) {
+        let result = payload.get("result").cloned();
+        
+        match state.controller.complete_task(task_id, result).await {
+            Ok(()) => {
+                println!("Task completed: {}", task_id);
+                
+                // Update node status to idle if this was their task
+                if let Some(node_id) = payload.get("node_id").and_then(|v| v.as_str()) {
+                    state.controller.update_node_status(node_id, "idle").await;
+                }
+                
+                Json(serde_json::json!({
+                    "status": "success",
+                    "message": "Task result submitted successfully"
+                }))
+            }
+            Err(error) => {
+                Json(serde_json::json!({
+                    "status": "error",
+                    "message": error
+                }))
+            }
+        }
+    } else {
+        Json(serde_json::json!({
+            "status": "error",
+            "message": "Missing task_id"
+        }))
+    }
+}
+
+/// Log task completion to JSON file
+async fn log_task_completion(
+    State(_state): State<WebServerState>,
+    Json(task_log): Json<TaskLog>,
+) -> impl IntoResponse {
+    let log_file_path = "task_logs.json";
+    
+    match log_task_to_file(&task_log, log_file_path).await {
+        Ok(()) => {
+            println!("📝 Task logged: {} - {} ({}ms)", 
+                task_log.task_id, 
+                task_log.task_type, 
+                task_log.duration_ms
+            );
+            
+            Json(serde_json::json!({
+                "status": "success",
+                "message": "Task logged successfully"
+            }))
+        }
+        Err(error) => {
+            eprintln!("❌ Failed to log task: {}", error);
+            Json(serde_json::json!({
+                "status": "error",
+                "message": format!("Failed to log task: {}", error)
+            }))
+        }
+    }
+}
+
+/// Write task log to JSON file
+async fn log_task_to_file(task_log: &TaskLog, file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use tokio::fs::{File, OpenOptions};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    
+    // Read existing logs or create empty array
+    let mut logs: Vec<TaskLog> = if std::path::Path::new(file_path).exists() {
+        let mut file = File::open(file_path).await?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).await?;
+        
+        if contents.trim().is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(&contents).unwrap_or_else(|_| Vec::new())
+        }
+    } else {
+        Vec::new()
+    };
+    
+    // Add new log entry
+    logs.push(task_log.clone());
+    
+    // Keep only last 1000 entries to prevent file from growing too large
+    if logs.len() > 1000 {
+        logs = logs.into_iter().rev().take(1000).rev().collect();
+    }
+    
+    // Write back to file
+    let json_data = serde_json::to_string_pretty(&logs)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(file_path)
+        .await?;
+    
+    file.write_all(json_data.as_bytes()).await?;
+    file.flush().await?;
+    
+    Ok(())
+}
+
+/// Get task logs for metrics dashboard
+async fn get_task_logs(
+    State(_state): State<WebServerState>,
+) -> impl IntoResponse {
+    let log_file_path = "task_logs.json";
+    
+    match read_task_logs_from_file(log_file_path).await {
+        Ok(logs) => {
+            Json(logs)
+        }
+        Err(error) => {
+            eprintln!("❌ Failed to read task logs: {}", error);
+            // Return empty array instead of error for better UX
+            Json(Vec::<TaskLog>::new())
+        }
+    }
+}
+
+/// Read task logs from JSON file
+async fn read_task_logs_from_file(file_path: &str) -> Result<Vec<TaskLog>, Box<dyn std::error::Error>> {
+    use tokio::fs::File;
+    use tokio::io::AsyncReadExt;
+    
+    if !std::path::Path::new(file_path).exists() {
+        return Ok(Vec::new());
+    }
+    
+    let mut file = File::open(file_path).await?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).await?;
+    
+    if contents.trim().is_empty() {
+        Ok(Vec::new())
+    } else {
+        let logs: Vec<TaskLog> = serde_json::from_str(&contents)
+            .unwrap_or_else(|_| Vec::new());
+        Ok(logs)
     }
 }
 
