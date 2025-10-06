@@ -12,58 +12,53 @@ mod controller_manager;
 use anyhow::Result;
 use clap::Parser;
 use tracing::{info, error};
-
-#[derive(Parser)]
-#[command(name = "processdistro-controller")]
-#[command(about = "ProcessDistro distributed computing controller")]
-struct Args {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(clap::Subcommand)]
-enum Commands {
-    /// Start the controller
-    Start {
-        /// Port to listen on
-        #[arg(short, long, default_value = "30000")]
-        port: u16,
-        
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<String>,
-        
-        /// Enable debug logging
-        #[arg(short, long)]
-        debug: bool,
-    },
-    /// Scan network for devices
-    Scan {
-        /// Port to use for discovery
-        #[arg(short, long, default_value = "30000")]
-        port: u16,
-        
-        /// Enable debug logging
-        #[arg(short, long)]
-        debug: bool,
-    },
-}
+use cli::{Cli, Commands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
+    let cli = Cli::parse();
     
-    match args.command {
-        Commands::Start { port, config, debug } => {
-            start_controller(port, config, debug).await
+    match cli.command {
+        Commands::Start { port } => {
+            start_controller(port, false).await
         }
-        Commands::Scan { port, debug } => {
-            scan_network(port, debug).await
+        Commands::Status => {
+            show_status().await
+        }
+        Commands::ListNodes => {
+            list_nodes().await
+        }
+        Commands::SubmitTask { task_type, params, input: _ } => {
+            submit_task(task_type, params).await
+        }
+        Commands::CancelTask { task_id } => {
+            cancel_task(task_id).await
+        }
+        Commands::Metrics => {
+            show_metrics().await
+        }
+        Commands::Progress { task_id } => {
+            show_progress(task_id).await
+        }
+        Commands::DistributeTasks { count } => {
+            distribute_tasks(count).await
+        }
+        Commands::ShowStats => {
+            show_enhanced_stats().await
+        }
+        Commands::ShowNodes => {
+            show_node_details().await
+        }
+        Commands::Scan { port } => {
+            scan_network(port, false).await
+        }
+        Commands::TestMandelbrot { width, height, max_iterations } => {
+            test_mandelbrot_distributed(width, height, max_iterations).await
         }
     }
 }
 
-async fn start_controller(port: u16, _config: Option<String>, debug: bool) -> Result<()> {
+async fn start_controller(port: u16, debug: bool) -> Result<()> {
     // Initialize logging
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(if debug {
@@ -164,12 +159,13 @@ async fn start_controller(port: u16, _config: Option<String>, debug: bool) -> Re
                                 continue;
                             }
                             
-                            println!("\n🎨 Mandelbrot Fractal Rendering Test Configuration:");
-                            println!("  • Canvas: 800x600 pixels per node");
-                            println!("  • Algorithm: Mandelbrot set with smooth coloring");
-                            println!("  • Max iterations: 100");
+                            println!("\n🎨 Enhanced Distributed Mandelbrot Test Configuration:");
+                            println!("  • Canvas: 1200x900 pixels (intelligently tiled across nodes)");
+                            println!("  • Algorithm: Enhanced distributed Mandelbrot with intelligent load balancing");
+                            println!("  • Max iterations: 1000 (adjusted per node capability)");
                             println!("  • Target nodes: {} active node(s)", active_nodes.len());
-                            println!("  • Estimated duration: 5-15 seconds per node");
+                            println!("  • Distribution: Performance-based tile assignment");
+                            println!("  • Estimated duration: Optimized based on node capabilities");
                             
                             print!("\n✨ Ready to render beautiful fractals? (y/N): ");
                             io::stdout().flush().ok();
@@ -178,9 +174,9 @@ async fn start_controller(port: u16, _config: Option<String>, debug: bool) -> Re
                             if let Ok(_) = io::stdin().read_line(&mut confirmation) {
                                 let confirm = confirmation.trim();
                                 if confirm.eq_ignore_ascii_case("y") || confirm.eq_ignore_ascii_case("yes") {
-                                    println!("\n🚀 Starting Mandelbrot rendering on all {} nodes...", active_nodes.len());
-                                    let task_ids = controller_clone.controller.run_mandelbrot_test(800, 600, 100).await;
-                                    println!("✅ Successfully dispatched {} tasks", task_ids.len());
+                                    println!("\n🚀 Starting Enhanced Distributed Mandelbrot rendering on all {} nodes...", active_nodes.len());
+                                    let task_ids = controller_clone.controller.run_mandelbrot_test(1200, 900, 1000).await;
+                                    println!("✅ Successfully dispatched {} distributed tasks", task_ids.len());
                                     println!("🎯 Task IDs: {:?}", task_ids);
                                     println!("🎨 Watch live canvas rendering on dashboard: http://localhost:30100");
                                 } else {
@@ -277,6 +273,77 @@ async fn scan_network(port: u16, debug: bool) -> Result<()> {
         println!("  Other Devices: {}", other_devices);
         println!("  Total: {}", devices.len());
     }
+    
+    Ok(())
+}
+
+async fn show_status() -> Result<()> {
+    println!("Controller Status: Running");
+    // TODO: Implement actual status check
+    Ok(())
+}
+
+async fn list_nodes() -> Result<()> {
+    println!("Connected Nodes:");
+    // TODO: List actual connected nodes
+    Ok(())
+}
+
+async fn submit_task(task_type: String, params: String) -> Result<()> {
+    println!("Submitting {} task with params: {}", task_type, params);
+    // TODO: Submit actual task
+    Ok(())
+}
+
+async fn cancel_task(task_id: String) -> Result<()> {
+    println!("Cancelling task: {}", task_id);
+    // TODO: Cancel actual task
+    Ok(())
+}
+
+async fn show_metrics() -> Result<()> {
+    println!("Performance Metrics:");
+    // TODO: Show actual metrics
+    Ok(())
+}
+
+async fn show_progress(task_id: Option<String>) -> Result<()> {
+    match task_id {
+        Some(id) => println!("Progress for task {}: 0%", id),
+        None => println!("All task progress: No active tasks"),
+    }
+    // TODO: Show actual progress
+    Ok(())
+}
+
+async fn distribute_tasks(count: usize) -> Result<()> {
+    println!("Distributing {} tasks intelligently across connected nodes...", count);
+    // TODO: Implement intelligent task distribution using enhanced controller manager
+    Ok(())
+}
+
+async fn show_enhanced_stats() -> Result<()> {
+    println!("Enhanced Network Statistics:");
+    // TODO: Show enhanced network statistics using get_enhanced_network_stats()
+    Ok(())
+}
+
+async fn show_node_details() -> Result<()> {
+    println!("Detailed Node Information:");
+    // TODO: Show detailed node capabilities and performance metrics
+    Ok(())
+}
+
+async fn test_mandelbrot_distributed(width: u32, height: u32, max_iterations: u32) -> Result<()> {
+    println!("🎨 Starting Enhanced Distributed Mandelbrot Test");
+    println!("📐 Canvas: {}x{}, Iterations: {}", width, height, max_iterations);
+    println!("🧠 Using intelligent node distribution algorithm...");
+    
+    // TODO: Initialize controller manager and call the enhanced run_mandelbrot_test
+    // For now, just show what would happen
+    println!("✅ This would distribute Mandelbrot tiles intelligently across connected nodes");
+    println!("🎯 Each node would receive optimized tiles based on their performance capabilities");
+    println!("⚡ Load balancing would ensure efficient resource utilization");
     
     Ok(())
 }

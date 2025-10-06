@@ -48,6 +48,34 @@ pub enum Commands {
         /// Task ID to check
         task_id: Option<String>,
     },
+    /// Distribute tasks intelligently across nodes
+    DistributeTasks {
+        /// Number of tasks to distribute
+        #[arg(short, long, default_value = "10")]
+        count: usize,
+    },
+    /// Show enhanced network statistics
+    ShowStats,
+    /// Show detailed node information
+    ShowNodes,
+    /// Scan network for devices
+    Scan {
+        /// Port to use for discovery
+        #[arg(short, long, default_value = "30000")]
+        port: u16,
+    },
+    /// Run Mandelbrot test with intelligent distribution
+    TestMandelbrot {
+        /// Canvas width
+        #[arg(short, long, default_value = "800")]
+        width: u32,
+        /// Canvas height
+        #[arg(short = 'H', long, default_value = "600")]
+        height: u32,
+        /// Maximum iterations
+        #[arg(short, long, default_value = "1000")]
+        max_iterations: u32,
+    },
 }
 
 pub struct CliHandler {
@@ -91,6 +119,26 @@ impl CliHandler {
                     None => println!("All task progress: No active tasks"),
                 }
                 // TODO: Show actual progress
+            }
+            Commands::DistributeTasks { count } => {
+                println!("Distributing {} tasks intelligently across connected nodes...", count);
+                // TODO: Implement intelligent task distribution
+            }
+            Commands::ShowStats => {
+                println!("Enhanced Network Statistics:");
+                // TODO: Show enhanced network statistics
+            }
+            Commands::ShowNodes => {
+                println!("Detailed Node Information:");
+                // TODO: Show detailed node capabilities
+            }
+            Commands::Scan { port } => {
+                println!("Scanning network on port {}...", port);
+                // TODO: Implement network scan
+            }
+            Commands::TestMandelbrot { width, height, max_iterations } => {
+                println!("Running distributed Mandelbrot test: {}x{} with {} iterations", width, height, max_iterations);
+                // TODO: Implement enhanced Mandelbrot test
             }
         }
     }

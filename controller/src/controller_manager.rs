@@ -296,18 +296,18 @@ impl ControllerManager {
         nodes.values().cloned().collect()
     }
 
-    /// Add a task to the queue
+    /// Add a task to the queue with enhanced distribution logic
     pub async fn add_task(&self, task_type: String, payload: serde_json::Value, priority: u8) -> String {
         let task = Task {
             task_id: Uuid::new_v4().to_string(),
-            task_type,
+            task_type: task_type.clone(),
             status: TaskStatus::Pending,
             assigned_node: None,
             priority,
             created_at: Utc::now(),
             started_at: None,
             completed_at: None,
-            estimated_duration: None,
+            estimated_duration: self.estimate_task_duration(&task_type, &payload),
             actual_duration: None,
             payload,
             result: None,
@@ -319,21 +319,77 @@ impl ControllerManager {
         {
             let mut queue = self.task_queue.write().await;
             queue.push(task);
-            // Sort by priority (highest first)
-            queue.sort_by(|a, b| b.priority.cmp(&a.priority));
+            // Enhanced sorting: priority first, then by estimated complexity for better distribution
+            queue.sort_by(|a, b| {
+                b.priority.cmp(&a.priority)
+                    .then_with(|| {
+                        // Prefer compute-intensive tasks for high-performance nodes
+                        let a_compute_intensive = self.is_compute_intensive_task(&a.task_type);
+                        let b_compute_intensive = self.is_compute_intensive_task(&b.task_type);
+                        b_compute_intensive.cmp(&a_compute_intensive)
+                    })
+            });
         }
         
-        println!("📋 Task added to queue: {} (priority: {})", task_id, priority);
+        println!("📋 Enhanced task added to queue: {} (type: {}, priority: {})", task_id, task_type, priority);
         self.broadcast_network_update().await;
         
         task_id
     }
 
-    /// Assign next task to a node
+    /// Estimate task duration based on type and payload for better scheduling
+    fn estimate_task_duration(&self, task_type: &str, payload: &serde_json::Value) -> Option<Duration> {
+        match task_type {
+            "mandelbrot" => {
+                let width = payload.get("width").and_then(|v| v.as_u64()).unwrap_or(800);
+                let height = payload.get("height").and_then(|v| v.as_u64()).unwrap_or(600);
+                let max_iterations = payload.get("max_iterations").and_then(|v| v.as_u64()).unwrap_or(100);
+                
+                // Estimate based on complexity
+                let complexity_factor = (width * height * max_iterations) / 1_000_000;
+                Some(Duration::from_secs(5 + complexity_factor.min(60)))
+            },
+            "password_hash" => {
+                let workload = payload.get("workload").and_then(|v| v.as_u64()).unwrap_or(10000);
+                Some(Duration::from_secs(workload / 2000 + 3))
+            },
+            "matrix_mul" => {
+                let matrix_size = payload.get("matrix_size").and_then(|v| v.as_u64()).unwrap_or(256);
+                let complexity = (matrix_size * matrix_size * matrix_size) / 1_000_000;
+                Some(Duration::from_secs(complexity + 2))
+            },
+            _ => Some(Duration::from_secs(30)),
+        }
+    }
+
+    /// Check if a task type is compute-intensive for better node assignment
+    fn is_compute_intensive_task(&self, task_type: &str) -> bool {
+        matches!(task_type, "mandelbrot" | "matrix_mul" | "password_hash")
+    }
+
+    /// Assign next task to a node with intelligent selection based on capabilities
     pub async fn assign_task_to_node(&self, node_id: &str) -> Option<Task> {
+        // Get node info for capability-aware assignment
+        let node_info = {
+            let nodes = self.nodes.read().await;
+            nodes.get(node_id).cloned()
+        };
+        
         let mut task = {
             let mut queue = self.task_queue.write().await;
-            queue.pop()
+            
+            // Find the best task for this node based on its capabilities
+            if let Some(node) = &node_info {
+                // Look for a task that matches node capabilities
+                let best_task_index = self.find_best_task_for_node(&*queue, node);
+                if let Some(index) = best_task_index {
+                    Some(queue.remove(index))
+                } else {
+                    queue.pop() // Fallback to any available task
+                }
+            } else {
+                queue.pop() // If no node info, just get any task
+            }
         }?;
         
         task.assigned_node = Some(node_id.to_string());
@@ -355,10 +411,51 @@ impl ControllerManager {
             }
         }
         
-        println!("🎯 Task assigned: {} -> {}", task_id, node_id);
+        println!("🎯 Intelligent task assignment: {} -> {} (type: {})", 
+                 task_id, node_id, task.task_type);
         self.broadcast_network_update().await;
         
         Some(task)
+    }
+
+    /// Find the best task for a node based on its capabilities
+    fn find_best_task_for_node(&self, tasks: &[Task], node_info: &NodeInfo) -> Option<usize> {
+        let mut best_task_index = None;
+        let mut best_score = 0.0;
+        
+        for (index, task) in tasks.iter().enumerate() {
+            let score = self.calculate_task_node_affinity(task, node_info);
+            if score > best_score {
+                best_score = score;
+                best_task_index = Some(index);
+            }
+        }
+        
+        best_task_index
+    }
+
+    /// Calculate affinity score between task and node (higher is better)
+    fn calculate_task_node_affinity(&self, task: &Task, node_info: &NodeInfo) -> f64 {
+        let mut score = 0.0;
+        
+        // Prefer nodes with higher benchmark scores for compute-intensive tasks
+        if self.is_compute_intensive_task(&task.task_type) {
+            if let Some(benchmark_score) = node_info.capabilities.benchmark_score {
+                score += benchmark_score / 1000.0; // Normalize
+            }
+        }
+        
+        // Prefer nodes with more CPU cores for demanding tasks
+        score += (node_info.capabilities.cpu_cores as f64) / 4.0; // Normalize assuming max 4 cores
+        
+        // Prefer nodes with more available memory
+        let available_memory_gb = node_info.capabilities.available_memory as f64 / (1024.0 * 1024.0 * 1024.0);
+        score += available_memory_gb;
+        
+        // Add priority bonus
+        score += (task.priority as f64) / 10.0;
+        
+        score
     }
 
     /// Complete a task
@@ -600,63 +697,239 @@ impl ControllerManager {
         }
     }
 
-    /// Run a Mandelbrot fractal rendering test on all nodes with canvas display
+    /// Run a Mandelbrot fractal rendering test on all nodes with intelligent distribution
     pub async fn run_mandelbrot_test(&self, width: u32, height: u32, max_iterations: u32) -> Vec<String> {
-        let nodes = self.get_active_nodes().await;
+        let active_nodes = self.get_active_nodes().await;
         let mut task_ids = Vec::new();
 
-        println!("🎨 Debug: Starting Mandelbrot test with {} active nodes", nodes.len());
+        if active_nodes.is_empty() {
+            println!("❌ No active nodes available for Mandelbrot test");
+            return task_ids;
+        }
+
+        println!("🎨 Debug: Starting distributed Mandelbrot test with {} active nodes", active_nodes.len());
         println!("📐 Canvas dimensions: {}x{}, Max iterations: {}", width, height, max_iterations);
 
-        for node in nodes.iter() {
-            println!("🖼️ Creating Mandelbrot task for node: {} ({})", node.capabilities.device_name, node.node_id);
-            
-            let payload = serde_json::json!({
-                "test": "mandelbrot",
-                "width": width,
-                "height": height,
-                "tile_x": 0,
-                "tile_y": 0,
-                "tile_width": width,
-                "tile_height": height,
-                "min_real": -2.5,
-                "max_real": 1.0,
-                "min_imag": -1.25,
-                "max_imag": 1.25,
-                "max_iterations": max_iterations,
-                "enable_progress": true,
-                "estimated_duration": 10, // 10 seconds estimate
-                "canvas_rendering": true
-            });
+        // Calculate optimal tile distribution based on node capabilities
+        let total_nodes = active_nodes.len();
+        let tiles_per_dimension = (total_nodes as f64).sqrt().ceil() as u32;
+        let tile_width = width / tiles_per_dimension;
+        let tile_height = height / tiles_per_dimension;
 
-            let task_id = self.add_task("mandelbrot".to_string(), payload.clone(), 5).await;
-            task_ids.push(task_id.clone());
+        println!("🧩 Distributing {} tiles across {} nodes ({}x{} tiles of {}x{} pixels each)", 
+                 tiles_per_dimension * tiles_per_dimension, total_nodes, 
+                 tiles_per_dimension, tiles_per_dimension, tile_width, tile_height);
 
-            println!("🎯 Task created: {} for node: {}", task_id, node.node_id);
+        // Sort nodes by performance capability for optimal task assignment
+        let mut sorted_nodes = active_nodes.clone();
+        sorted_nodes.sort_by(|a, b| {
+            // First by benchmark score (higher is better)
+            b.capabilities.benchmark_score.partial_cmp(&a.capabilities.benchmark_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    // Then by CPU cores (more cores handle complex tiles better)
+                    b.capabilities.cpu_cores.cmp(&a.capabilities.cpu_cores)
+                })
+        });
 
-            // Broadcast execute_task to nodes (they will filter by assigned node)
-            let broadcast_result = self.broadcast_tx.send(WsMessage::ExecuteTask {
-                task_id: task_id.clone(),
-                task_type: "mandelbrot".to_string(),
-                payload: payload.clone(),
-                assigned_node: node.node_id.clone(),
-            });
+        // Check current node loads for intelligent distribution
+        let running_tasks = self.running_tasks.read().await;
+        let mut node_loads: Vec<(NodeInfo, u32)> = Vec::new();
 
-            match broadcast_result {
-                Ok(_) => {
-                    println!("✅ WebSocket message sent successfully for task: {}", task_id);
+        for node in sorted_nodes {
+            let current_load = running_tasks.values()
+                .filter(|task| task.assigned_node.as_ref() == Some(&node.node_id))
+                .count() as u32;
+            node_loads.push((node, current_load));
+        }
+
+        // Sort by load (least loaded first) while maintaining performance preference
+        node_loads.sort_by(|a, b| {
+            a.1.cmp(&b.1).then_with(|| {
+                b.0.capabilities.benchmark_score.partial_cmp(&a.0.capabilities.benchmark_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
+
+        drop(running_tasks);
+
+        // Create Mandelbrot tasks with intelligent tile assignment
+        let mut tile_index = 0;
+        for tile_y in 0..tiles_per_dimension {
+            for tile_x in 0..tiles_per_dimension {
+                // Find next available node (skip overloaded ones)
+                let mut attempts = 0;
+                let (node, current_load) = loop {
+                    if attempts >= node_loads.len() {
+                        // If all nodes are overloaded, use the least loaded one
+                        println!("⚠️ All nodes overloaded, using least loaded node");
+                        let min_load_item = node_loads.iter().min_by_key(|(_, load)| *load).unwrap();
+                        break (min_load_item.0.clone(), min_load_item.1.clone());
+                    }
+                    
+                    let current_tile_index = tile_index % node_loads.len();
+                    let (node, current_load) = &node_loads[current_tile_index];
+                    
+                    if *current_load < node.capabilities.cpu_cores * 2 {
+                        break (node.clone(), *current_load);
+                    }
+                    
+                    println!("⚠️ Skipping overloaded node: {} (load: {})", node.capabilities.device_name, current_load);
+                    tile_index += 1;
+                    attempts += 1;
+                };
+                
+                // Ensure unique tile assignment
+                println!("🎯 Assigning tile ({}, {}) to node: {} ({})", 
+                         tile_x, tile_y, node.capabilities.device_name, node.node_id);
+
+                let actual_tile_width = if tile_x == tiles_per_dimension - 1 { 
+                    width - tile_x * tile_width 
+                } else { 
+                    tile_width 
+                };
+                let actual_tile_height = if tile_y == tiles_per_dimension - 1 { 
+                    height - tile_y * tile_height 
+                } else { 
+                    tile_height 
+                };
+
+                // Calculate complexity-adjusted parameters for this node
+                let node_performance_factor = node.capabilities.benchmark_score.unwrap_or(100.0) / 100.0;
+                let adjusted_max_iterations = (max_iterations as f64 * node_performance_factor.min(2.0)) as u32;
+
+                // Calculate the complex plane bounds for this specific tile
+                let real_range = 1.0 - (-2.5); // 3.5 total range
+                let imag_range = 1.25 - (-1.25); // 2.5 total range
+                
+                let tile_min_real = -2.5 + (tile_x as f64 * tile_width as f64 / width as f64) * real_range;
+                let tile_max_real = -2.5 + ((tile_x + 1) as f64 * tile_width as f64 / width as f64) * real_range;
+                let tile_min_imag = -1.25 + (tile_y as f64 * tile_height as f64 / height as f64) * imag_range;
+                let tile_max_imag = -1.25 + ((tile_y + 1) as f64 * tile_height as f64 / height as f64) * imag_range;
+
+                println!("🖼️ Creating optimized Mandelbrot tile for node: {} ({})", 
+                         node.capabilities.device_name, node.node_id);
+                println!("   📍 Tile position: ({}, {}), Size: {}x{}, Iterations: {}", 
+                         tile_x, tile_y, actual_tile_width, actual_tile_height, adjusted_max_iterations);
+                println!("   🎯 Complex bounds: real[{:.3}, {:.3}], imag[{:.3}, {:.3}]", 
+                         tile_min_real, tile_max_real, tile_min_imag, tile_max_imag);
+
+                let payload = serde_json::json!({
+                    "test": "mandelbrot_distributed",
+                    "width": actual_tile_width,     // ✅ Only render the tile size
+                    "height": actual_tile_height,   // ✅ Only render the tile size
+                    "full_canvas_width": width,     // 📐 For reference/positioning
+                    "full_canvas_height": height,   // 📐 For reference/positioning
+                    "tile_x": tile_x * tile_width,
+                    "tile_y": tile_y * tile_height,
+                    "tile_width": actual_tile_width,
+                    "tile_height": actual_tile_height,
+                    "min_real": tile_min_real,      // 🎯 Tile-specific complex bounds
+                    "max_real": tile_max_real,      // 🎯 Tile-specific complex bounds
+                    "min_imag": tile_min_imag,      // 🎯 Tile-specific complex bounds
+                    "max_imag": tile_max_imag,      // 🎯 Tile-specific complex bounds
+                    "max_iterations": adjusted_max_iterations,
+                    "enable_progress": true,
+                    "estimated_duration": self.estimate_mandelbrot_duration(actual_tile_width, actual_tile_height, adjusted_max_iterations, node_performance_factor),
+                    "canvas_rendering": true,
+                    "node_performance_factor": node_performance_factor,
+                    "tile_id": format!("tile_{}_{}", tile_x, tile_y),
+                    "tile_index_x": tile_x,         // 📍 For dashboard positioning
+                    "tile_index_y": tile_y          // 📍 For dashboard positioning
+                });
+
+                // Calculate dynamic priority based on tile complexity and node capability
+                let complexity_score = (actual_tile_width * actual_tile_height * adjusted_max_iterations) as f64;
+                let priority = if complexity_score > 50_000_000.0 { 8 } 
+                              else if complexity_score > 10_000_000.0 { 6 } 
+                              else { 5 };
+
+                let task_id = self.add_task("mandelbrot".to_string(), payload.clone(), priority).await;
+                task_ids.push(task_id.clone());
+
+                // 🎯 CRITICAL: Directly assign this task to the specific node we calculated
+                // This prevents other nodes from getting the same tile
+                {
+                    let mut task_queue = self.task_queue.write().await;
+                    let mut running_tasks = self.running_tasks.write().await;
+                    
+                    // Find and remove the task from the queue
+                    if let Some(pos) = task_queue.iter().position(|t| t.task_id == task_id) {
+                        let mut task = task_queue.remove(pos);
+                        
+                        // Update task to running state with specific node assignment
+                        task.status = TaskStatus::Running;
+                        task.assigned_node = Some(node.node_id.clone());
+                        task.started_at = Some(chrono::Utc::now());
+                        
+                        running_tasks.insert(task_id.clone(), task.clone());
+                        
+                        println!("✅ Directly assigned task {} to node: {} (tile: {}, {})", 
+                                task_id, node.node_id, tile_x, tile_y);
+                        
+                        // Broadcast the task directly to the specific node
+                        let _ = self.broadcast_tx.send(WsMessage::ExecuteTask {
+                            task_id: task.task_id.clone(),
+                            task_type: task.task_type.clone(),
+                            payload: task.payload.clone(),
+                            assigned_node: node.node_id.clone(),
+                        });
+                    }
                 }
-                Err(e) => {
-                    println!("❌ Failed to send WebSocket message for task {}: {:?}", task_id, e);
-                }
+
+                tile_index += 1; // Move to next node for next tile
             }
         }
 
-        println!("📊 Total Mandelbrot tasks dispatched: {}", task_ids.len());
+        println!("📊 Total Mandelbrot tasks created and assigned: {}", task_ids.len());
+
+        println!("📊 Total Mandelbrot tasks created: {}", task_ids.len());
         println!("🎨 Broadcasting network update...");
         self.broadcast_network_update().await;
         
         task_ids
+    }
+
+    /// Estimate Mandelbrot rendering duration based on complexity and node performance
+    fn estimate_mandelbrot_duration(&self, width: u32, height: u32, iterations: u32, performance_factor: f64) -> u32 {
+        let base_complexity = (width * height * iterations) as f64;
+        let adjusted_duration = (base_complexity / 1_000_000.0) / performance_factor.max(0.1);
+        (adjusted_duration.max(2.0).min(120.0)) as u32 // Between 2 and 120 seconds
+    }
+
+    /// Find the best available node based on current load and performance
+    async fn find_best_available_node(&self) -> Option<NodeInfo> {
+        let active_nodes = self.get_active_nodes().await;
+        if active_nodes.is_empty() {
+            return None;
+        }
+
+        let running_tasks = self.running_tasks.read().await;
+        let mut best_node: Option<NodeInfo> = None;
+        let mut best_score = f64::NEG_INFINITY;
+
+        for node in active_nodes {
+            let current_load = running_tasks.values()
+                .filter(|task| task.assigned_node.as_ref() == Some(&node.node_id))
+                .count() as u32;
+
+            // Skip if node is at capacity
+            if current_load >= node.capabilities.cpu_cores * 2 {
+                continue;
+            }
+
+            // Calculate node score: performance / load ratio
+            let performance_score = node.capabilities.benchmark_score.unwrap_or(100.0);
+            let load_factor = 1.0 / (current_load as f64 + 1.0);
+            let node_score = performance_score * load_factor;
+
+            if node_score > best_score {
+                best_score = node_score;
+                best_node = Some(node);
+            }
+        }
+
+        best_node
     }
 
     /// Run a password hashing test on all nodes with enhanced monitoring
@@ -708,4 +981,165 @@ impl ControllerManager {
         
         task_ids
     }
+
+    /// Distribute tasks intelligently based on node capabilities and load
+    pub async fn distribute_tasks_intelligently(&self) -> Result<usize, String> {
+        let active_nodes = self.get_active_nodes().await;
+        if active_nodes.is_empty() {
+            return Err("No active nodes available for task distribution".to_string());
+        }
+
+        let pending_tasks = {
+            let queue = self.task_queue.read().await;
+            queue.len()
+        };
+
+        if pending_tasks == 0 {
+            return Ok(0);
+        }
+
+        let mut distributed_count = 0;
+
+        // Calculate current load for each node
+        let running_tasks = self.running_tasks.read().await;
+        let mut node_loads: Vec<(NodeInfo, u32)> = Vec::new();
+
+        for node in active_nodes {
+            let current_load = running_tasks.values()
+                .filter(|task| task.assigned_node.as_ref() == Some(&node.node_id))
+                .count() as u32;
+            node_loads.push((node, current_load));
+        }
+
+        // Sort by load and performance for intelligent distribution
+        node_loads.sort_by(|a, b| {
+            // First by load (least loaded first)
+            a.1.cmp(&b.1)
+                .then_with(|| {
+                    // Then by performance (higher benchmark score first)
+                    b.0.capabilities.benchmark_score.partial_cmp(&a.0.capabilities.benchmark_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+        });
+
+        // Drop the running_tasks guard to avoid deadlock
+        drop(running_tasks);
+
+        // Distribute tasks to nodes in order of preference
+        let node_count = node_loads.len();
+        for (node, current_load) in node_loads {
+            // Don't overload nodes - limit based on CPU cores
+            if current_load < node.capabilities.cpu_cores {
+                if let Some(task) = self.assign_task_to_node(&node.node_id).await {
+                    distributed_count += 1;
+
+                    // Broadcast the task
+                    let _ = self.broadcast_tx.send(WsMessage::ExecuteTask {
+                        task_id: task.task_id.clone(),
+                        task_type: task.task_type.clone(),
+                        payload: task.payload.clone(),
+                        assigned_node: node.node_id.clone(),
+                    });
+
+                    // Check if we have more tasks to distribute
+                    let remaining_tasks = {
+                        let queue = self.task_queue.read().await;
+                        queue.len()
+                    };
+                    if remaining_tasks == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if distributed_count > 0 {
+            println!("🎯 Intelligently distributed {} tasks across {} nodes", 
+                     distributed_count, node_count);
+        }
+
+        Ok(distributed_count)
+    }
+
+    /// Get enhanced network statistics with load balancing metrics
+    pub async fn get_enhanced_network_stats(&self) -> EnhancedNetworkStats {
+        let base_stats = self.get_network_stats().await;
+        let nodes = self.nodes.read().await;
+        let running_tasks = self.running_tasks.read().await;
+        let completed_tasks = self.completed_tasks.read().await;
+
+        // Calculate load balance efficiency
+        let mut node_task_counts: Vec<u32> = Vec::new();
+        for node_id in nodes.keys() {
+            let task_count = running_tasks.values()
+                .filter(|task| task.assigned_node.as_ref() == Some(node_id))
+                .count() as u32;
+            node_task_counts.push(task_count);
+        }
+
+        let load_balance_efficiency = if node_task_counts.len() > 1 {
+            let avg_load = node_task_counts.iter().sum::<u32>() as f64 / node_task_counts.len() as f64;
+            let variance = node_task_counts.iter()
+                .map(|&x| (x as f64 - avg_load).powi(2))
+                .sum::<f64>() / node_task_counts.len() as f64;
+            let std_dev = variance.sqrt();
+
+            // Efficiency is higher when standard deviation is lower
+            if avg_load > 0.0 {
+                1.0 - (std_dev / (avg_load + 1.0)).min(1.0)
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        };
+
+        // Calculate average completion time
+        let average_completion_time = if !completed_tasks.is_empty() {
+            completed_tasks.iter()
+                .filter_map(|task| task.actual_duration)
+                .map(|d| d.as_secs_f64())
+                .sum::<f64>() / completed_tasks.len() as f64
+        } else {
+            0.0
+        };
+
+        // Calculate throughput
+        let completed_in_last_minute = completed_tasks.iter()
+            .filter(|task| {
+                if let Some(completed_at) = task.completed_at {
+                    (Utc::now() - completed_at).num_seconds() <= 60
+                } else {
+                    false
+                }
+            })
+            .count();
+
+        let throughput = completed_in_last_minute as f64 / 60.0;
+        
+        let node_utilization = if base_stats.total_nodes > 0 { 
+            base_stats.busy_nodes as f64 / base_stats.total_nodes as f64 
+        } else { 
+            0.0 
+        };
+
+        EnhancedNetworkStats {
+            base_stats,
+            load_balance_efficiency,
+            average_task_completion_time: average_completion_time,
+            throughput_tasks_per_second: throughput,
+            node_utilization,
+        }
+    }
+}
+
+/// Enhanced network statistics with distribution metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnhancedNetworkStats {
+    #[serde(flatten)]
+    pub base_stats: NetworkStats,
+    pub load_balance_efficiency: f64,
+    pub average_task_completion_time: f64,
+    pub throughput_tasks_per_second: f64,
+    pub node_utilization: f64,
 }
